@@ -1,0 +1,14 @@
+{
+  "pr": {
+    "publisher": "Elsevier",
+    "site": "https://www.editorialmanager.com/pr/mainpage.html",
+    "username": "your_username",
+    "password": "your_password"
+  },
+  "tmi": {
+    "publisher": "IEEE",
+    "site": "https://mc.manuscriptcentral.com/tmi-ieee",
+    "username": "your_username",
+    "password": "your_password"
+  }
+}

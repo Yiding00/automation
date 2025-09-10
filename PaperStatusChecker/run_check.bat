@@ -1,0 +1,1 @@
+python D:\github\automation\PaperStatusChecker\checker.py
