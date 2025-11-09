@@ -1,142 +1,177 @@
-from data_utils.Ashare import *
 import pandas as pd
+from data_utils.Ashare import *
+from data_utils.utils import get_fund_price
+from my_assets import assets_info, target_ratio, target_ratio_sub
+from datetime import datetime
 
-# 以往数据测试
-f = '30m' # '1m','5m','15m','30m','60m', 1d, 1w, 1M
-timepoints = 10
+output_file = "output.txt"
 
-A={}
-A_scaled={}
-A[1] = get_price('sz159934',frequency=f,count=timepoints) # 黄金
-A[0] = get_price('sh511010',frequency=f,count=timepoints) # 债券
-A[2] = get_price('sh513500',frequency=f,count=timepoints) # 标普500
-A[3] = get_price('sh000300',frequency=f,count=timepoints) # 沪深300
-A[4] = get_price('sz399006',frequency=f,count=timepoints) # 创业板
-A[5] = get_price('sz164824',frequency=f,count=timepoints) # 印度指数
+# === 获取现有价值 ===
+A = {}
+for name, (code, _, source, units, _) in assets_info.items():
+    if source == "fund":
+        A[name] = get_fund_price(code, count=1)
+    elif source == "etf":
+        A[name] = get_price(code, frequency="5m", count=1)
 
-p = [0.4,0.2,0.1,0.1,0.1,0.1] # 资产比例
+current_values = {}
+for name, (_, cname, source, units, _) in assets_info.items():
+    if source == "cash":
+        current_values[name] = units
+    else:
+        latest_price = A[name]["close"].iloc[-1]
+        current_values[name] = units * latest_price
 
-A_scaled[0] = A[0].div(A[0].iloc[0])
-A_scaled[1] = A[1].div(A[1].iloc[0])
-A_scaled[2] = A[2].div(A[2].iloc[0])
-A_scaled[3] = A[3].div(A[3].iloc[0])
-A_scaled[4] = A[4].div(A[4].iloc[0])
-A_scaled[5] = A[5].div(A[5].iloc[0])
+# === 转换成 DataFrame ===
+df = pd.DataFrame.from_dict(assets_info, orient="index",
+    columns=["代码", "渠道", "类型", "持有份额", "分类"])
+df["现有价值"] = [current_values[k] for k in df.index]
+df[["大类","小类"]] = df["分类"].str.split("-", expand=True)
 
-portfolio = sum(a * b for a, b in zip(A_scaled.values(), p))
-
-# print(portfolio['close'])
-
-asset_names = {
-    0: "债券",
-    1: "黄金",
-    2: "标普500",
-    3: "沪深300",
-    4: "创业板",
-    5: "印度指数"
-}
-
-# 提取每个资产的 close 列，并用中文名字重命名
-close_dfs = [A[i]['close'].rename(asset_names[i]) for i in range(6)]
-close_df = pd.concat(close_dfs, axis=1).round(6)
-
-df = pd.read_csv("output.txt", sep="|")
-last_row = df.tail(1)
-
-# 今天日期（取 close_df 的最后一天作为基准）
-now = close_df.index[-2]
-
-# 检查是否已经有今天的数据
-last_date = pd.to_datetime(last_row.iloc[0, 0])
-if str(last_date) == str(now):
-    print(f"✅ {now} 已经计算过，不再重复追加。")
-else:
-    # 取 close_df 最近两天
-    prev_close = close_df.loc[last_date]
-    today_close = close_df.loc[now]
-
-    # 计算比例
-    ratio = today_close / prev_close
-
-    # 计算今天的资产（去掉第一列日期，只算资产部分）
-    new_assets = last_row.iloc[0, 1:-1] * ratio.values
-
-    # 拼接成新的 row
-    new_row = pd.DataFrame([[now.strftime("%Y-%m-%d %H:%M:%S")] + new_assets.round(2).tolist() + [new_assets.sum().round(2)]],
-                       columns=last_row.columns)
-
-    filename = "output.txt"
-    with open(filename, "a", encoding="utf-8") as f:
-        # 写数据
-        f.write("{:<19} | ".format(now.strftime("%Y-%m-%d %H:%M:%S")))
-        for val in new_assets:
-            f.write("{:<8} | ".format(val.round(2)))
-        f.write("{:<8}\n".format(new_assets.sum().round(2)))
+# === 总资产 ===
+total_value = df["现有价值"].sum()
 
 
-    print("✅ 已添加新的一行：")
-    print(new_row)
+# === 小类汇总 ===
+sub_summary = df.groupby("分类")["现有价值"].sum()
+sub_diff = {}
+sub_diff_ratio = {}
+for k, tar in target_ratio_sub.items():
+    target_value = total_value * tar
+    actual_value = sub_summary.get(k, 0)
+    sub_diff[k] = actual_value - target_value
+    sub_diff_ratio[k] = sub_diff[k]/target_value * 100
+
+# === 大类汇总 ===
+cls_summary = df.groupby("大类")["现有价值"].sum()
+cls_diff = {}
+cls_diff_ratio = {}
+for k, tar in target_ratio.items():
+    target_value = total_value * tar
+    actual_value = cls_summary.get(k, 0)
+    cls_diff[k] = actual_value - target_value
+    cls_diff_ratio[k] = cls_diff[k]/target_value * 100
 
 
-import numpy as np
-import tkinter as tk
-from tkinter import messagebox
+output_file = "portfolio.txt"
 
-df = pd.read_csv("output.txt", sep="|")
-last_row = df.tail(1)
-# 今天日期（取 close_df 的最后一天作为基准）
-now = close_df.index[-1]
+# 列宽
+col1, col2, col3, col4 = 12, 25, 25, 25
 
-# 检查是否已经有今天的数据
-last_date = pd.to_datetime(last_row.iloc[0, 0])
+with open(output_file, "w", encoding="utf-8") as f:
+    now = datetime.now()
+    f.write(str(now.strftime("%Y-%m-%d %H:%M:%S")))
+    # === 各小类 ===
+    f.write("\n— 各小类 —\n")
+    f.write(f"{'分类':<{col1+4}}{'现有':<{col2-2}}{'目标':<{col3-2}}{'差额':<{col4-5}}\n")
+    f.write("-" * (col1 + col2 + col3 + col4) + "\n")
 
-# 取 close_df 最近两天
-prev_close = close_df.loc[last_date]
-today_close = close_df.loc[now]
+    for k, v in sub_summary.items():
+        tar_ratio = target_ratio_sub[k] * 100
+        tar_value = total_value * target_ratio_sub[k]
+        current_ratio = v / total_value * 100
+        diff_val = sub_diff[k]
+        diff_ratio = sub_diff_ratio[k]
 
-# 计算比例
-ratio = today_close / prev_close
-
-# 计算今天的资产（去掉第一列日期，只算资产部分）
-new_assets = last_row.iloc[0, 1:-1] * ratio.values
-
-# 拼接成新的 row
-new_row = pd.DataFrame([[now.strftime("%Y-%m-%d %H:%M:%S")] + new_assets.round(2).tolist() + [new_assets.sum().round(2)]],
-                       columns=last_row.columns)
-
-assets = new_row.to_numpy()[0, 1:-1]
-
-ratio = assets / np.sum(assets)
-# ratio = np.floor(ratio*1e4)/1e4
-
-diff_ratio = (ratio - p) / p
-diff_ratio = np.floor(diff_ratio*1e4)/1e4
-
-print(now)
-
-# 转换为百分比
-diff_percentage = diff_ratio * 100
-
-# 构建弹窗内容
-message_lines = []
-message_lines.append(str(now))
-
-# 每个资产的差距百分比
-for idx, diff in enumerate(diff_percentage):
-    message_lines.append(f"{asset_names[idx]}: {diff:.2f}%")
-
-# 差距超过20%的资产
-exceed_idx = [idx for idx, diff in enumerate(diff_ratio) if np.abs(diff) > 0.2]
-if exceed_idx:
-    message_lines.append("\n差距超过20%的资产：")
-    for idx in exceed_idx:
-        current = assets[idx]
-        target = np.sum(assets) * p[idx]
-        message_lines.append(f"{asset_names[idx]} 当前值={current:.2f}, 目标值={target:.2f}, 差额={current - target:.2f}")
-else:
-    message_lines.append("\n✅ 所有资产均在合理范围内（偏差≤20%）")
+        current_str = f"{v:.2f} ({current_ratio:.2f}%)"
+        target_str  = f"{tar_value:.2f} ({tar_ratio:.2f}%)"
+        if diff_ratio > 20 or diff_ratio < -20:
+            diff_str    = f"{diff_val:.2f} [{diff_ratio:.2f}%]!!!!"
+        elif diff_ratio > 15 or diff_ratio < -15:
+            diff_str    = f"{diff_val:.2f} [{diff_ratio:.2f}%]!"
+        else:
+            diff_str    = f"{diff_val:.2f} ({diff_ratio:.2f}%)"
 
 
-root = tk.Tk()
-root.withdraw()  # 隐藏主窗口
-messagebox.showinfo("资产差距报告", "\n".join(message_lines))
+        f.write(f"{k:<{col1}}{current_str:<{col2}}{target_str:<{col3}}{diff_str:<{col4}}\n")
+
+    # === 各大类 ===
+    f.write("\n— 各大类 —\n")
+    f.write(f"{'分类':<{col1}}{'现有':<{col2-2}}{'目标':<{col3-2}}{'差额':<{col4}}\n")
+    f.write("-" * (col1 + col2 + col3 + col4) + "\n")
+
+    for k, v in cls_summary.items():
+        tar_ratio = target_ratio[k] * 100
+        tar_value = total_value * target_ratio[k]
+        current_ratio = v / total_value * 100
+        diff_val = cls_diff[k]
+        diff_ratio = cls_diff_ratio[k]
+
+        current_str = f"{v:.2f} ({current_ratio:.2f}%)"
+        target_str  = f"{tar_value:.2f} ({tar_ratio:.2f}%)"
+        if diff_ratio > 15 or diff_ratio < -15:
+            diff_str    = f"{diff_val:.2f} [{diff_ratio:.2f}%]"
+        else:
+            diff_str    = f"{diff_val:.2f} ({diff_ratio:.2f}%)"
+
+
+        f.write(f"{k:<{col1}}{current_str:<{col2}}{target_str:<{col3}}{diff_str:<{col4}}\n")
+
+    # === 总资产 ===
+    f.write(f"\n投资组合总价值: {total_value:.2f}\n")
+
+    # === 计算 ETF 调仓建议 ===
+    adjust = {}
+
+    f.write("\n— 每月固定投入400，奖金投入80% —\n")
+    f.write("\n— 按大类差额进行调仓，若差距大于20%再主动调 —\n")
+
+    for k, v in sub_summary.items():
+        diff_ratio = sub_diff_ratio[k]
+        if diff_ratio > 0:
+            for name, (code, cname, source, units, cls) in assets_info.items():
+                if source == "fund" and cls == k:
+                # if cls == k:
+                    latest_price = A[name]["close"].iloc[-1]
+                    # 小类目标差额
+                    diff_val = sub_diff.get(k, 0)
+                    
+                    # 计算需要买入/卖出份额
+                    shares_to_adjust = -diff_val / latest_price
+
+                    if shares_to_adjust != 0:
+                        adjust[name] = {
+                            "代码": code,
+                            "现价": latest_price,
+                            "持仓份额": units,
+                            "目标调整份额": int(shares_to_adjust*100)/100,
+                            "目标调整手数": int(shares_to_adjust*100)/100,
+                            "调整金额": int(shares_to_adjust*100)/100 * latest_price,
+                            "所属小类": k
+                        }
+                    break
+
+        if diff_ratio < 0:
+            for name, (code, cname, source, units, cls) in assets_info.items():
+                if source == "etf" and cls == k:
+                    latest_price = A[name]["close"].iloc[-1]
+                    # 小类目标差额
+                    diff_val = sub_diff.get(k, 0)
+                    
+                    # 计算需要买入/卖出份额
+                    shares_to_adjust = -diff_val / latest_price
+                    lots_to_adjust = int(shares_to_adjust / 100)  # 换算成手数，取整
+
+                    if lots_to_adjust != 0:
+                        adjust[name] = {
+                            "代码": code,
+                            "现价": latest_price,
+                            "持仓份额": units,
+                            "目标调整份额": int(lots_to_adjust * 100),
+                            "目标调整手数": lots_to_adjust,
+                            "调整金额": lots_to_adjust * 100 * latest_price,
+                            "所属小类": k
+                        }
+                    break
+
+
+    # === 写入输出文件 ===
+    f.write("\n— 资产调仓建议 —\n")
+    if not adjust:
+        f.write("所有资产已满足目标比例，无需调整。\n")
+    else:
+        f.write(f"{'代码':<10}{'现价':<10}{'调整手数':<10}{'调整金额':<15}{'小类':<10}\n")
+        f.write("-" * 70 + "\n")
+        for name, info in adjust.items():
+            f.write(f"{info['代码']:<12}{info['现价']:<12.2f}"
+                    f"{info['目标调整手数']:<14}{info['调整金额']:<19.2f}{info['所属小类']:<10}\n")
