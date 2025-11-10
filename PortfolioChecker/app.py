@@ -1,11 +1,13 @@
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 # from matplotlib import font_manager
 
 # 设置中文字体
-plt.rcParams['font.sans-serif'] = ['SimHei']  # 黑体
-plt.rcParams['axes.unicode_minus'] = False     # 解决负号显示问题
+mpl.font_manager.fontManager.addfont('font/NotoSansSC-VariableFont_wght.ttf')
+plt.rcParams['font.sans-serif']=['Noto Sans SC']
+plt.rcParams['axes.unicode_minus']=False
 
 from passlib.context import CryptContext
 
