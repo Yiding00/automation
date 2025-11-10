@@ -5,7 +5,7 @@ import matplotlib as mpl
 # from matplotlib import font_manager
 
 # 设置中文字体
-mpl.font_manager.fontManager.addfont('font/NotoSansSC-VariableFont_wght.ttf')
+mpl.font_manager.fontManager.addfont('PortfolioChecker/font/NotoSansSC-VariableFont_wght.ttf')
 plt.rcParams['font.sans-serif']=['Noto Sans SC']
 plt.rcParams['axes.unicode_minus']=False
 
