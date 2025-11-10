@@ -39,13 +39,13 @@ def check_password():
 
 # 未登录时显示密码输入
 if not st.session_state.logged_in:
-    st.subheader("请输入密码访问专属内容")
+    st.subheader("请输入密码访问专属内容（输入 1 查看demo）")
     st.text_input(
         "密码",
         type="password",
         key="password_input",
         on_change=check_password,
-        placeholder="输入密码后回车"
+        placeholder="输入密码后回车（输入 1 查看demo）"
     )
 
 # 登录成功后展示专属内容（根据内容类型动态渲染）
@@ -138,12 +138,35 @@ else:
 
         # === 输出结果区 ===
         def highlight_diff(row):
-            if float(row["差额比例"][:-1]) > 20:
-                return ["background-color: #ffcccc;"] * len(row)  # 红色（超配）
-            elif float(row["差额比例"][:-1]) < -20:
-                return ["background-color: #cce5ff;"] * len(row)  # 蓝色（低配）
+            val = float(row["差额比例"][:-1])  # 去掉%并转成浮点数
+            
+            # 超配：正差额
+            if val > 20:
+                return ["background-color: #ff9999;"] * len(row)  # 深红
+            elif 10 < val <= 20:
+                # 渐变从浅红 (#ffe6e6) → 深红 (#ff9999)
+                ratio = (val - 10) / 10  # 0~1之间
+                r = int(255)
+                g = int(230 - ratio * (230 - 153))
+                b = int(230 - ratio * (230 - 153))
+                color = f"background-color: rgb({r},{g},{b});"
+                return [color] * len(row)
+            
+            # 低配：负差额
+            elif val < -20:
+                return ["background-color: #99ccff;"] * len(row)  # 深蓝
+            elif -20 <= val < -10:
+                # 渐变从浅蓝 (#e6f0ff) → 深蓝 (#99ccff)
+                ratio = (abs(val) - 10) / 10  # 0~1之间
+                r = int(230 - ratio * (230 - 153))
+                g = int(240 - ratio * (240 - 204))
+                b = int(255)
+                color = f"background-color: rgb({r},{g},{b});"
+                return [color] * len(row)
+            
             else:
                 return [""] * len(row)
+
             
         st.markdown(f"**投资组合总价值：{total_value:,.2f} 元**")
 
